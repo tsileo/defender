@@ -5,7 +5,7 @@
 B
 Low-level package to help prevent brute force attacks, built on top of [golang.org/x/time/rate](https://golang.org/x/time/rate).
 
-```
+```go
 package main
 
 import (
@@ -19,6 +19,6 @@ func main() {
 	d := defender.New(50, 1 * time.Second, 1 * time.Hour)
 	if d.Banned(r.RemoteAddr) {
 		// Do sth
-        }
+	}
 }
 ```
