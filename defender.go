@@ -28,8 +28,6 @@ type Defender struct {
 	BanDuration time.Duration
 	Max         int
 
-	BanHook func(interface{}) error
-
 	sync.Mutex
 }
 
@@ -54,8 +52,8 @@ func (d *Defender) BanList() []*Client {
 	return l
 }
 
-// Banned returns true if the client is banned
-func (d *Defender) Banned(key interface{}) (bool, error) {
+// Banned returns true if the client is banned, the second indicate if the ban just happened
+func (d *Defender) Banned(key interface{}) (bool, bool) {
 	d.Lock()
 	defer d.Unlock()
 	now := time.Now()
@@ -78,7 +76,7 @@ func (d *Defender) Banned(key interface{}) (bool, error) {
 
 	// Check if client is banned
 	if client.banned {
-		return true, nil
+		return true, false
 	}
 
 	// Update the client expiration
@@ -91,17 +89,11 @@ func (d *Defender) Banned(key interface{}) (bool, error) {
 		// Set the client as banned
 		client.banned = true
 
-		// Check if a hook is registered
-		if d.BanHook != nil {
-			if err := d.BanHook(key); err != nil {
-				return false, err
-			}
-		}
 		// Set the ban duration
 		client.expire = now.Add(d.BanDuration)
 	}
 
-	return banned, nil
+	return banned, banned
 }
 
 // Cleanup should be used if you want to manage the cleanup yourself, looks for CleanupTask for an automatic way
