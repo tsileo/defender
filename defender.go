@@ -18,16 +18,18 @@ type client struct {
 type Defender struct {
 	tokenBuckets map[string]*client
 
-	Duration time.Duration
-	Max      int
+	Duration    time.Duration
+	BanDuration time.Duration
+	Max         int
 
 	sync.Mutex
 }
 
-func New(max int, duration time.Duration) *Defender {
+func New(max int, duration, banDuration time.Duration) *Defender {
 	return &Defender{
 		tokenBuckets: map[string]*client{},
 		Duration:     duration,
+		BanDuration:  banDuration,
 		Max:          max,
 	}
 }
@@ -48,7 +50,12 @@ func (d *Defender) Banned(key string) bool {
 		return true
 	}
 	client.expire = now.Add(d.Duration * Factor)
-	return !client.limiter.AllowN(now, 1)
+	banned := !client.limiter.AllowN(now, 1)
+	if banned {
+		client.banned = true
+		client.expire = now.Add(d.BanDuration)
+	}
+	return banned
 }
 
 func (d *Defender) Cleanup() {
