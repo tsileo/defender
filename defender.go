@@ -7,7 +7,7 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const Factor = 50
+const Factor = 10
 
 type Client struct {
 	limiter *rate.Limiter
@@ -22,7 +22,7 @@ func (c *Client) Expire() time.Time { return c.expire }
 
 // Defender keep tracks if the `Client`s and maintains the banlist
 type Defender struct {
-	tokenBuckets map[interface{}]*Client
+	clients map[interface{}]*Client
 
 	Duration    time.Duration
 	BanDuration time.Duration
@@ -34,17 +34,17 @@ type Defender struct {
 // New initializes a Defender instance that will limit `max` event maximum per `duration` before banning the client for `banDuration`
 func New(max int, duration, banDuration time.Duration) *Defender {
 	return &Defender{
-		tokenBuckets: map[interface{}]*Client{},
-		Duration:     duration,
-		BanDuration:  banDuration,
-		Max:          max,
+		clients:     map[interface{}]*Client{},
+		Duration:    duration,
+		BanDuration: banDuration,
+		Max:         max,
 	}
 }
 
 // BanList returns the list of banned clients
 func (d *Defender) BanList() []*Client {
 	l := []*Client{}
-	for _, client := range d.tokenBuckets {
+	for _, client := range d.clients {
 		if client.banned {
 			l = append(l, client)
 		}
@@ -52,22 +52,29 @@ func (d *Defender) BanList() []*Client {
 	return l
 }
 
-// Banned returns true if the client is banned, the second indicate if the ban just happened
-func (d *Defender) Banned(key interface{}) (bool, bool) {
+func (d *Defender) Client(key interface{}) (*Client, bool) {
+	d.Lock()
+	defer d.Unlock()
+	client, ok := d.clients[key]
+	return client, ok
+}
+
+// Increment the number of event for the given client key, returns true if the client just got banned
+func (d *Defender) Inc(key interface{}) bool {
 	d.Lock()
 	defer d.Unlock()
 	now := time.Now()
 
 	// Try to retrieve the
-	if _, found := d.tokenBuckets[key]; !found {
-		d.tokenBuckets[key] = &Client{
+	if _, found := d.clients[key]; !found {
+		d.clients[key] = &Client{
 			key:     key,
 			limiter: rate.NewLimiter(rate.Every(d.Duration), d.Max),
 			expire:  now.Add(d.Duration * Factor),
 		}
 	}
 
-	client := d.tokenBuckets[key]
+	client := d.clients[key]
 
 	// Check if the client is not banned anymore and the cleanup hasn't been run yet
 	if client.banned && now.After(client.expire) {
@@ -76,7 +83,7 @@ func (d *Defender) Banned(key interface{}) (bool, bool) {
 
 	// Check if client is banned
 	if client.banned {
-		return true, false
+		return true
 	}
 
 	// Update the client expiration
@@ -93,7 +100,7 @@ func (d *Defender) Banned(key interface{}) (bool, bool) {
 		client.expire = now.Add(d.BanDuration)
 	}
 
-	return banned, banned
+	return banned
 }
 
 // Cleanup should be used if you want to manage the cleanup yourself, looks for CleanupTask for an automatic way
@@ -101,9 +108,9 @@ func (d *Defender) Cleanup() {
 	d.Lock()
 	defer d.Unlock()
 	now := time.Now()
-	for key, client := range d.tokenBuckets {
+	for key, client := range d.clients {
 		if now.After(client.expire) {
-			delete(d.tokenBuckets, key)
+			delete(d.clients, key)
 		}
 	}
 }
